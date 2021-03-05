@@ -15,40 +15,67 @@
 #include <cstring>
 #include <string>
 #include <cctype>
+#include <algorithm>
 
 #include <vector>
+
+// remove noexcept from string stuff or whatever
 
 class console
 {
 public:
 
-	console(const short width, const short height, const short fontW, const short fontH) : 
-	m_screenBuffer(width, height), m_fontWidth(fontW), m_fontHeight(fontH) {}
+	console(const int width, const int height, const short fontW, const short fontH) : 
+	m_width(width), m_height(height), m_fontWidth(fontW), m_fontHeight(fontH) 
+	{
+		m_screenBuffer = new CHAR_INFO[m_bufferSize()];
+		std::memset(m_screenBuffer, 0, sizeof(CHAR_INFO) * m_bufferSize());
+	}
 
 	~console()
 	{
+		delete[] m_screenBuffer;
+
 		CloseHandle(m_handleOut);
 
-		SetConsoleActiveScreenBuffer(m_oldHandleOut);
+		SetConsoleActiveScreenBuffer(GetStdHandle(STD_OUTPUT_HANDLE));
 		SetConsoleMode(m_handleIn, m_oldInputHandleMode);
 	}
 
 	console(const console&) = delete;
 	console& operator= (const console&) = delete;
 
+private:
+
+	static constexpr auto s_foregroundWhite = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE; 
+	static constexpr auto s_backgroundWhite = BACKGROUND_RED | BACKGROUND_GREEN | BACKGROUND_BLUE;
+
+	constexpr void m_setGrid(const std::size_t index, const wchar_t c, const WORD color = s_foregroundWhite) noexcept
+	{
+		m_screenBuffer[index].Attributes = color;
+		m_screenBuffer[index].Char.UnicodeChar = c;
+	}
+
+	constexpr void m_setGrid(const std::size_t x, const std::size_t y, const wchar_t c, const WORD color = s_foregroundWhite) noexcept
+	{
+		m_setGrid((y * m_width) + x, c, color);
+	}
+
+	constexpr void m_emptyGrid(const std::size_t index) noexcept
+	{
+		m_setGrid(index, L' ');
+	} 
+
 public:
 
 	[[nodiscard]] bool m_construct() noexcept
 	{
-		m_oldHandleOut = GetStdHandle(STD_OUTPUT_HANDLE);
 		m_handleIn = GetStdHandle(STD_INPUT_HANDLE);
 
 		m_handleOut = CreateConsoleScreenBuffer(GENERIC_READ | GENERIC_WRITE,
 			FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, CONSOLE_TEXTMODE_BUFFER, nullptr);
 
-		if (
-			m_oldHandleOut == INVALID_HANDLE_VALUE ||
-			m_handleOut == INVALID_HANDLE_VALUE ||
+		if (m_handleOut == INVALID_HANDLE_VALUE ||
 			m_handleIn == INVALID_HANDLE_VALUE)
 			return m_reportLastError();
 
@@ -60,7 +87,7 @@ public:
 
 		if (!SetConsoleWindowInfo(m_handleOut, TRUE, &consoleWindow)) return m_reportLastError();
 
-		if (!SetConsoleScreenBufferSize(m_handleOut, m_screenBuffer.m_bufferCoord())) return m_reportLastError();
+		if (!SetConsoleScreenBufferSize(m_handleOut, m_bufferCoord())) return m_reportLastError();
 
 		if (!SetConsoleActiveScreenBuffer(m_handleOut)) return m_reportLastError();
 
@@ -78,187 +105,25 @@ public:
 		CONSOLE_SCREEN_BUFFER_INFO csbi;
 		if (!GetConsoleScreenBufferInfo(m_handleOut, &csbi)) return m_reportLastError();
 
-		if (
-			m_screenBuffer.m_width > csbi.dwMaximumWindowSize.X ||  
-			m_screenBuffer.m_height > csbi.dwMaximumWindowSize.Y)
+		if (m_width > csbi.dwMaximumWindowSize.X || m_height > csbi.dwMaximumWindowSize.Y)
 		{ 
 			return m_reportLastError();
 		}
 
-		if (!SetConsoleWindowInfo(m_handleOut, TRUE, &m_screenBuffer.m_consoleRect)) return m_reportLastError();
+		if (!SetConsoleWindowInfo(m_handleOut, TRUE, m_ptrConsoleRect())) return m_reportLastError();
+
+		// CONSOLE_CURSOR_INFO cursorInfo;
+		// cursorInfo.dwSize = 1;
+		// cursorInfo.bVisible = FALSE;
+
+		// if(!SetConsoleCursorInfo(m_handleOut, &cursorInfo)) return m_reportLastError();
 
 		return true;
 	}
 
-	struct screenBuffer
-	{
-		screenBuffer(const int width, const int height)
-		: m_width(width), m_height(height)
-		{
-			m_buffer = new CHAR_INFO[width * height];
-			std::memset(m_buffer, 0, sizeof(CHAR_INFO) * m_bufferSize());
-
-			m_consoleRect = { 0, 0, static_cast<SHORT>(m_width - 1), static_cast<SHORT>(m_height - 1) };
-		}
-
-		~screenBuffer()
-		{
-			delete[] m_buffer;
-		}
-
-		screenBuffer(const screenBuffer&) = delete;
-		screenBuffer& operator=(const screenBuffer&) = delete;
-
-		using indexType = long;
-
-		static constexpr auto s_foregroundWhite = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE; 
-		static constexpr auto s_backgroundWhite = BACKGROUND_RED | BACKGROUND_GREEN | BACKGROUND_BLUE;
-
-		void m_draw(const HANDLE handle) noexcept
-		{	
-			using namespace std::chrono;
-
-			static auto s_cursorTimer = std::chrono::steady_clock::now();
-			static bool s_cursorOn = false;
-
-			if(duration_cast<duration<double>>(steady_clock::now() - s_cursorTimer).count() >= 0.75)
-			{
-				s_cursorOn = !s_cursorOn;
-
-				s_cursorTimer = steady_clock::now();
-			}
-
-			// draw cursor
-			if(s_cursorOn)
-			{
-				const auto oldState = m_buffer[m_currPos];
-				m_setPixel(m_currPos, L' ', s_backgroundWhite);
-
-				m_drawBuffer(handle);
-			
-				m_setPixel(m_currPos, oldState.Char.UnicodeChar, oldState.Attributes);
-			}
-			else m_drawBuffer(handle);
-
-			
-		}
-
-		constexpr void m_clear(const wchar_t value = L' ', const WORD color = s_foregroundWhite) noexcept
-		{
-			for(indexType i = 0; i < m_width * m_height; ++i)
-			{
-				m_setPixel(i, value, color);
-			}
-
-		}
-
-		constexpr void m_setPixel(const indexType pos, const wchar_t value, const WORD color = s_foregroundWhite) noexcept
-		{
-			m_buffer[pos].Attributes = color;
-			m_buffer[pos].Char.UnicodeChar = value;
-		}
-
-		[[nodiscard]] constexpr wchar_t m_getPixel(const indexType pos) const noexcept
-		{
-			return m_buffer[pos].Char.UnicodeChar;
-		}
-
-		[[nodiscard]] constexpr std::size_t m_bufferSize() const noexcept
-		{
-			return static_cast<std::size_t>(m_width * m_height);
-		}
-		[[nodiscard]] constexpr COORD m_bufferCoord() const noexcept
-		{
-			return { static_cast<SHORT>(m_width), static_cast<SHORT>(m_height) };
-		}
-
-		// get index and value to set
-		constexpr void m_insertChar(const wchar_t value, const WORD color = s_foregroundWhite) noexcept
-		{
-			for(indexType i = m_currSize - 1; i >= m_currPos; --i)
-			{
-				m_buffer[i + 1] = m_buffer[i];
-			}
-
-			m_setPixel(m_currPos, value, color);
-
-			++m_currSize;
-		}
-
-		constexpr void m_handleEvents(const KEY_EVENT_RECORD keyEvent) noexcept
-		{
-			if (!keyEvent.bKeyDown) return;
-
-			switch (keyEvent.wVirtualKeyCode)
-			{
-			case VK_BACK: // backspace
-				
-				if(m_currPos > 0)
-				{
-					for(indexType i = m_currPos; i < m_currSize; ++i)
-					{
-						m_buffer[i - 1] = m_buffer[i];
-					}
-					
-					m_setPixel(m_currSize - 1, L' ');
-
-					--m_currSize;
-					--m_currPos;
-				}
-
-				break;
-			case VK_DELETE:
-				m_setPixel(m_currPos, L' ');
-				break;
-			case VK_LEFT:
-				if(m_currPos > 0) --m_currPos;			
-				break;
-			case VK_RIGHT:
-				if(m_currPos + 1 < m_currSize) ++m_currPos;
-				break;
-			default:
-
-				if(keyEvent.uChar.UnicodeChar)
-				{
-					m_insertChar(keyEvent.uChar.UnicodeChar);
-
-					++m_currPos;
-				}
-
-
-				break;
-			}
-		}
-
-	public:
-
-		SMALL_RECT m_consoleRect;
-
-		int m_width;
-		int m_height;
-
-	
-		CHAR_INFO* m_buffer = nullptr;
-
-		indexType m_currPos = 0;
-		indexType m_currSize = 1;
-
-		// std::vector<CHAR_INFO> m_buffer;
-
-	private:
-
-		void m_drawBuffer(const HANDLE handle) noexcept
-		{
-			WriteConsoleOutput(handle, m_buffer, m_bufferCoord(), { 0, 0 }, &m_consoleRect);
-		}
-
-	};
-
 	void m_run() noexcept
 	{
         using namespace std::chrono;
-
-		m_screenBuffer.m_clear();
 
 		auto frameStartTime = steady_clock::now();
 	
@@ -271,6 +136,8 @@ public:
 			// check errors
 			GetNumberOfConsoleInputEvents(m_handleIn, &eventCount);
 
+			bool updateConsole = false;
+
 			if (eventCount > 0)
 			{
 				INPUT_RECORD inputBuffer[32];
@@ -281,16 +148,18 @@ public:
 				{
 					if (inputBuffer[i].EventType != KEY_EVENT) continue;
 
-					m_screenBuffer.m_handleEvents(inputBuffer[i].Event.KeyEvent);
+					updateConsole |= m_handleEvents(inputBuffer[i].Event.KeyEvent);
+
+					// m_screenBuffer.m_handleEvents(inputBuffer[i].Event.KeyEvent);
 
 				}
 			}
 
 			// ~events
 
-
-			m_screenBuffer.m_draw(m_handleOut);
-
+			// update if anything is changed
+			if(updateConsole) { m_updateConsole(); }
+			
 			const auto elapsedTime = duration_cast<duration<double, std::milli>>(steady_clock::now() - frameStartTime);
 			frameStartTime = steady_clock::now();
 
@@ -300,13 +169,28 @@ public:
 
 			GetConsoleScreenBufferInfo(m_handleOut, &csbi);
 
-			ss << L"unuzdaq{ curSize = " << m_screenBuffer.m_currSize << L", currPos = " << m_screenBuffer.m_currPos << L", cursorX = " << csbi.dwCursorPosition.X << L", cursorPosY = " << csbi.dwCursorPosition.Y << L" }";
+			ss << m_consoleInputs.size() << L", " << m_rowCount << L", " << m_startRow << L", " << m_inputIndex << L", " << csbi.dwCursorPosition.X << L", " << csbi.dwCursorPosition.Y;
 
 			if (!SetConsoleTitle(ss.str().c_str())) return;
 
+			std::this_thread::sleep_for(milliseconds(16));
 		}
 
 	}
+
+private:
+
+	CHAR_INFO* m_screenBuffer;
+	int m_width;
+	int m_height;
+
+	short m_fontWidth;
+	short m_fontHeight;
+
+	HANDLE m_handleOut;
+	HANDLE m_handleIn;
+	
+	DWORD m_oldInputHandleMode;
 
 private:
 
@@ -327,15 +211,219 @@ private:
 		return false;
 	}
 
-	screenBuffer m_screenBuffer;
+	[[nodiscard]] constexpr std::size_t m_bufferSize() const noexcept
+	{
+		return static_cast<std::size_t>(m_width * m_height);
+	}
 
-	int m_fontWidth;
-	int m_fontHeight;
+	[[nodiscard]] constexpr COORD m_bufferCoord() const noexcept
+	{
+		return { static_cast<short>(m_width), static_cast<short>(m_height) };
+	}
 
-	HANDLE m_handleOut;
-	HANDLE m_handleIn;
-	
-	HANDLE m_oldHandleOut;
-	DWORD m_oldInputHandleMode;
+	[[nodiscard]] SMALL_RECT* m_ptrConsoleRect() const noexcept
+	{
+		static SMALL_RECT rect = { 0, 0, static_cast<short>(m_width - 1), static_cast<short>(m_height - 1) };
+
+		return &rect;
+	}
+
+private:
+
+	std::wstring m_consoleInputs;
+
+	std::size_t m_inputIndex = 0;
+
+	std::size_t m_startRow = 0;
+	std::size_t m_rowCount = 1;
+
+	COORD m_cursorPos = {};
+
+private:
+
+	constexpr void m_clearConsole() noexcept
+	{
+		for(std::size_t i = 0; i < m_bufferSize(); ++i)
+		{
+			m_emptyGrid(i);
+		}
+	}
+
+	[[nodiscard]] constexpr std::size_t m_getStartIndex() const noexcept
+	{
+		std::size_t result = 0;
+
+		if(m_startRow > 0)
+		{
+
+			std::size_t rowCount = 0;
+			
+			for(const auto& elem :  m_consoleInputs)
+			{
+				++result;
+
+				if(elem == L'\n')
+				{
+					if(m_startRow == ++rowCount) break;    
+				}
+			}
+
+		}
+
+		return result;
+	} 
+
+	void m_updateConsole() noexcept
+	{
+		m_clearConsole();
+
+		std::size_t i = 0;
+		std::size_t t = 0;
+
+		const std::size_t startIndex = m_getStartIndex();
+
+		for(auto it = m_consoleInputs.cbegin() + startIndex; it != m_consoleInputs.cend(); ++it)
+		{
+			if(*it == '\n')
+			{
+				++i;
+				t = 0;
+			
+				if(i >= m_height) break;
+
+				continue;
+			}
+
+			if(t >= m_width) continue;
+
+			m_setGrid(t, i, *it);
+
+			++t;
+		}
+
+		SetConsoleCursorPosition(m_handleOut, m_cursorPos);
+
+		// check returned error value
+		WriteConsoleOutputW(m_handleOut, m_screenBuffer, m_bufferCoord(), { 0, 0 }, m_ptrConsoleRect());
+	}
+
+	[[nodiscard]] std::size_t m_getRowNumAtIndex(const std::size_t index) const noexcept
+	{
+		if(index >= m_consoleInputs.size()) return 0;
+
+		std::size_t rowCount = 0;
+
+		for(std::size_t i = 0; i <= index; ++i)
+		{
+			if(m_consoleInputs[i] == L'\n') ++rowCount;
+		}
+
+		return rowCount;
+	}
+
+	[[nodiscard]] std::size_t m_getColSizeAtRow(const std::size_t row) const noexcept
+	{
+		std::size_t result = 0;
+		std::size_t rowCount = 0;
+
+		for(const auto& elem : m_consoleInputs)
+		{
+			if(elem == L'\n')
+			{
+				if(++rowCount == row) break;
+				result = 0;
+			}
+			else ++result;
+
+		}
+
+		return result;
+	}
+
+	bool m_handleEvents(const KEY_EVENT_RECORD event) noexcept
+	{
+		if(!event.bKeyDown) return false;
+
+		switch(event.wVirtualKeyCode)
+		{
+		case VK_BACK:
+			if(m_inputIndex > 0)
+			{
+				const auto it = m_consoleInputs.begin() + m_inputIndex - 1;
+
+				--m_inputIndex;
+				
+
+				if(*it == L'\n')
+				{
+					if(--m_rowCount < m_height && m_startRow > 0)
+					{	
+						--m_startRow;
+					}
+					else --m_cursorPos.Y;
+
+					m_cursorPos.X = static_cast<short>(m_getColSizeAtRow(m_rowCount));
+
+				} else --m_cursorPos.X;
+								
+				m_consoleInputs.erase(it);
+
+				return true;
+			}
+			break;
+		case VK_DELETE:
+			break;
+		case VK_LEFT:
+			if(m_inputIndex > 0)
+			{
+				if(m_consoleInputs[--m_inputIndex] == L'\n')
+				{
+					m_cursorPos.X = 0;
+					--m_cursorPos.Y;
+				}
+				else --m_cursorPos.X;
+			}
+			return true;
+			// break; // NO NEED TO DRAW AGAIN
+		case VK_RIGHT:
+			if(m_inputIndex < m_consoleInputs.size())
+			{
+				++m_inputIndex;
+				++m_cursorPos.X;
+			}
+			return true;
+			// break;
+		case VK_RETURN:
+
+			m_consoleInputs.insert(m_consoleInputs.begin() + m_inputIndex, L'\n');
+
+			++m_inputIndex;			
+			
+			m_cursorPos.X = 0;
+
+			if(++m_rowCount > m_height)
+			{
+				++m_startRow;
+			}
+			else ++m_cursorPos.Y;
+
+			return true;
+		default:
+			
+			if(event.uChar.UnicodeChar) 
+			{ 
+				m_consoleInputs.insert(m_consoleInputs.begin() + m_inputIndex, event.uChar.UnicodeChar);
+
+				++m_inputIndex;
+				++m_cursorPos.X;
+
+				return true; 
+			}
+			
+			break;
+		}
+
+		return false;
+	}
 };
 

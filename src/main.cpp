@@ -136,7 +136,7 @@
 
 int main()
 {
-	console console(160, 20, 8, 16);
+	console console(20, 20, 16, 16);
 
 	if (!console.m_construct()) return -1;
 	console.m_run();
