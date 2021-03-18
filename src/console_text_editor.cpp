@@ -248,6 +248,20 @@ void ConsoleTextEditor::m_updateCursorPos(const std::size_t consoleStartIndex) c
     SetConsoleCursorPosition(m_getConsoleHandleOut(), cursorPos);
 }
 
+// TODO
+
+// convert console to old state after done with it - done
+
+// make default cursor workable its just sits there - done 
+
+// change names - done?
+
+// default max buffer constuctor
+
+// down up arrows
+
+// ctrl c, ctrl v
+
 
 // [[nodiscard]] constexpr std::size_t m_findInBuffer(const wchar_t c, const std::size_t startIndex = 0) const noexcept
 // {
