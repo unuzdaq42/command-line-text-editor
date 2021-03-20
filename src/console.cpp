@@ -9,10 +9,8 @@
     if (!(x)) { m_reportLastError(#x, __FILE__, __LINE__, __VA_ARGS__); return false; }
 
 
-Console::~Console()
+Console::~Console() 
 {
-    delete[] m_screenBuffer;
-
     CloseHandle(m_handleOut);
 
     SetConsoleActiveScreenBuffer(GetStdHandle(STD_OUTPUT_HANDLE));
@@ -23,13 +21,9 @@ Console::~Console()
     const int width, const int height, 
     const short fontW, const short fontH, const bool visibleCursor) noexcept
 {
-    m_width  = width;
-    m_height = height;
-
     m_fontSize = { fontW, fontH };
 
-    m_screenBuffer = new CHAR_INFO[m_bufferSize()];
-    std::memset(m_screenBuffer, 0, sizeof(CHAR_INFO) * m_bufferSize());
+    m_createScreenBuffer(width, height);
 
     m_handleIn = GetStdHandle(STD_INPUT_HANDLE);
 
@@ -49,18 +43,23 @@ Console::~Console()
 
     CONSOLE_SCREEN_BUFFER_INFO csbi;
 
-   
+    auto rect = m_consoleRect();
+
+
+    constexpr auto inputHandleModes = ENABLE_EXTENDED_FLAGS | ENABLE_WINDOW_INPUT | ENABLE_MOUSE_INPUT;
+
 
     CONSOLE_ASSERT( m_handleOut != INVALID_HANDLE_VALUE && m_handleIn != INVALID_HANDLE_VALUE );
 
-    CONSOLE_ASSERT( GetConsoleMode              ( m_handleIn, &m_oldInputHandleMode                       ) );
-    CONSOLE_ASSERT( SetConsoleMode              ( m_handleIn, ENABLE_EXTENDED_FLAGS | ENABLE_WINDOW_INPUT ) );
-    CONSOLE_ASSERT( SetConsoleWindowInfo        ( m_handleOut, true, &consoleWindow                       ) );
-    CONSOLE_ASSERT( SetConsoleScreenBufferSize  ( m_handleOut, m_bufferCoord()                            ) );
-    CONSOLE_ASSERT( SetConsoleActiveScreenBuffer( m_handleOut                                             ) );
-    CONSOLE_ASSERT( SetCurrentConsoleFontEx     ( m_handleOut, false, &cfi                                ) );
-    CONSOLE_ASSERT( GetConsoleScreenBufferInfo  ( m_handleOut, &csbi                                      ) );
-    CONSOLE_ASSERT( SetConsoleWindowInfo        ( m_handleOut, true, m_ptrConsoleRect()                   ) );
+
+    CONSOLE_ASSERT( GetConsoleMode              ( m_handleIn , &m_oldInputHandleMode    ) );
+    CONSOLE_ASSERT( SetConsoleMode              ( m_handleIn , inputHandleModes         ) );
+    CONSOLE_ASSERT( SetConsoleWindowInfo        ( m_handleOut, true, &consoleWindow     ) );
+    CONSOLE_ASSERT( SetConsoleScreenBufferSize  ( m_handleOut, m_consoleSizeCoord()     ) );
+    CONSOLE_ASSERT( SetConsoleActiveScreenBuffer( m_handleOut                           ) );
+    CONSOLE_ASSERT( SetCurrentConsoleFontEx     ( m_handleOut, false, &cfi              ) );
+    CONSOLE_ASSERT( GetConsoleScreenBufferInfo  ( m_handleOut, &csbi                    ) );
+    CONSOLE_ASSERT( SetConsoleWindowInfo        ( m_handleOut, true, &rect              ) );
     
 
     CONSOLE_ASSERT( m_width <= csbi.dwMaximumWindowSize.X && m_height <= csbi.dwMaximumWindowSize.Y , 
@@ -109,6 +108,11 @@ void Console::m_run() noexcept
                 m_handleEvents(inputBuffer[i]);
             }
         }
+        
+        CONSOLE_SCREEN_BUFFER_INFO csbi = {};
+        GetConsoleScreenBufferInfo(m_handleOut, &csbi);
+
+        m_resizeConsole( { static_cast<short>(csbi.srWindow.Right + 1), static_cast<short>(csbi.srWindow.Bottom + 1) } );
 
         elapsedTime = duration_cast<duration<float, std::milli>>(steady_clock::now() - frameStartTime).count();
         frameStartTime = steady_clock::now();
@@ -155,12 +159,15 @@ void Console::m_reportLastError(const char* funcName, const char* fileName,
 
 void Console::m_renderConsole() noexcept
 {
-    WriteConsoleOutputW(m_handleOut, m_screenBuffer, m_bufferCoord(), { 0, 0 }, m_ptrConsoleRect());
+    auto rect = m_consoleRect();
+
+    WriteConsoleOutputW(m_handleOut, m_screenBuffer.data(), m_consoleSizeCoord(), { 0, 0 }, &rect);
 }
 
 
 void Console::m_handleEvents(const INPUT_RECORD event) noexcept
 {
+
     switch(event.EventType)
     {
     case KEY_EVENT:
@@ -169,9 +176,6 @@ void Console::m_handleEvents(const INPUT_RECORD event) noexcept
     case MOUSE_EVENT:
         m_childHandleMouseEvents(event.Event.MouseEvent);
     break;
-    case WINDOW_BUFFER_SIZE_EVENT:
-        m_resizeConsole(event.Event.WindowBufferSizeEvent.dwSize);
-    break;
     default:
     break;
     }
@@ -179,13 +183,21 @@ void Console::m_handleEvents(const INPUT_RECORD event) noexcept
 
 void Console::m_resizeConsole(const COORD newSize) noexcept
 {
-    if (newSize.X != m_width && newSize.Y != m_height)
+    if (newSize.X != m_width || newSize.Y != m_height)
     {
-        m_width  = newSize.X;
-        m_height = newSize.Y;
-
-        SetConsoleScreenBufferSize(m_handleOut, newSize);
-
-        m_childHandleResizeEvent(newSize);
+		const auto oldCoord = m_consoleSizeCoord();
+        
+        m_createScreenBuffer(newSize.X, newSize.Y);
+		SetConsoleScreenBufferSize(m_handleOut, newSize);
+        m_childHandleResizeEvent(oldCoord, newSize);
     }
+}
+
+
+void Console::m_createScreenBuffer(const int width, const int height) noexcept
+{
+    m_width  = width;   
+    m_height = height;
+
+    m_screenBuffer.resize(static_cast<std::size_t>(width * height));
 }

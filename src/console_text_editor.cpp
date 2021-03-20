@@ -1,6 +1,6 @@
 #include "console_text_editor.h"
 
-
+#include <sstream> // //
 
 [[nodiscard]] bool ConsoleTextEditor::m_constructEditor(const int argc, const char* argv[]) noexcept
 {
@@ -27,28 +27,62 @@
 
 bool ConsoleTextEditor::m_childConstruct()
 {
+    
+
+    constexpr wchar_t startStr[] = 
+    LR"(selamlar canisi selamlar
+    xd xd xd xd xd xd xd xd
+    selamlar canisi nabiyn
+    selamlar canısı xd
+    selamlar lol xd
+      xd)";
+
+    m_inputBuffer += startStr;
     m_inputBuffer.push_back(L' ');
+    m_rowCount = 6;
+
+    m_updateConsole();
 
     return true;
 }
 
-void ConsoleTextEditor::m_childUpdate(const float) {}
+void ConsoleTextEditor::m_childUpdate(const float) 
+{ 
+    std::wstringstream ss;
+
+    ss << L"m_currentIndex = " << m_currentIndex << L", m_rowCount = " << m_rowCount << L" m_startRow = " << m_startRow;
+
+    m_consoleTitle = std::move(ss.str()); 
+}
 
 void ConsoleTextEditor::m_childHandleKeyEvents(const KEY_EVENT_RECORD event) 
 {
-    if (!event.bKeyDown) return;
+    if (m_handleKeyEvents(event)) m_updateConsole();
+}
+
+void ConsoleTextEditor::m_childHandleMouseEvents(const MOUSE_EVENT_RECORD) {}
+void ConsoleTextEditor::m_childHandleResizeEvent(const COORD, const COORD)
+{
+    m_updateConsole();
+}
+
+bool ConsoleTextEditor::m_handleKeyEvents(const KEY_EVENT_RECORD event)
+{
+    if (!event.bKeyDown) return false;
+
+    const std::size_t startRowThreshold = m_screenHeight() / 2;
 
     switch (event.wVirtualKeyCode)
     {
     case VK_ESCAPE:
         m_closeConsole();
-        return;
+        break;
     case VK_BACK:
 
         if (m_currentIndex > 0)
         {
-            m_deleteCharAt(m_currentIndex - 1);
-            --m_currentIndex;
+            m_deleteCharAt(--m_currentIndex);
+            return true;
         }
 
         break;
@@ -57,37 +91,126 @@ void ConsoleTextEditor::m_childHandleKeyEvents(const KEY_EVENT_RECORD event)
         if (m_inputBuffer.size() > m_currentIndex + 1)
         {
             m_deleteCharAt(m_currentIndex);
+            return true;
         }
+
         break;
     case VK_LEFT:
 
-        if (m_currentIndex > 0) --m_currentIndex;
+        if (m_currentIndex > 0)
+        {
+            if (m_inputBuffer.at(--m_currentIndex) == L'\n' && m_startRow > 0)
+            {
+                --m_startRow;
+            }
+
+            return true;
+        }
+
         break;
     case VK_RIGHT:
 
-        if (m_currentIndex + 1 < m_inputBuffer.size()) ++m_currentIndex;
+        if (m_currentIndex + 1 < m_inputBuffer.size())
+        {
+            if (m_inputBuffer.at(m_currentIndex) == L'\n')
+            {
+                ////////////////////////////////// BRUH
+                if (m_getRowCountUntil(m_currentIndex) > startRowThreshold)
+                {
+                    ++m_startRow;
+                }
+
+            }
+
+            ++m_currentIndex;
+
+            return true;
+        }
+
         break;
+    case VK_DOWN:
+    {
+        std::size_t colCount = 0;
+
+        for (auto it = m_inputBuffer.crbegin() + m_inputBuffer.size() - m_currentIndex;
+            it != m_inputBuffer.crend(); ++it)
+        {
+            if (*it == L'\n') break;
+
+            ++colCount;
+        }
+
+        std::size_t newLineIndex = m_currentIndex;
+
+        while (m_inputBuffer.at(newLineIndex++) != L'\n')
+        {
+            if (newLineIndex >= m_inputBuffer.size()) return false;
+        }
+
+        const std::size_t size = std::min(newLineIndex + colCount, m_inputBuffer.size() - 1);
+
+        ////////////////////////////////// BRUH
+        if (m_getRowCountUntil(m_currentIndex) > startRowThreshold)
+        {
+            ++m_startRow;
+        }
+
+        for (std::size_t i = newLineIndex; i < size; ++i)
+        {
+            if (m_inputBuffer.at(i) == L'\n') { m_currentIndex = i; return true; }
+        }
+
+        m_currentIndex = size;
+
+        return true;
+    }
     case VK_RETURN:
 
         m_insertChar(L'\n');
 
-        if (++m_rowCount > m_screenHeight()) ++m_startRow;
+        if (++m_rowCount > startRowThreshold) ++m_startRow;
 
-        break;
+        return true;
     default:
 
         if (event.uChar.UnicodeChar)
         {
             m_insertChar(event.uChar.UnicodeChar);
+            return true;
         }
-        break;
+        break;    
     }
 
-    m_updateConsole();
+    return false;
 }
 
-void ConsoleTextEditor::m_childHandleMouseEvents(const MOUSE_EVENT_RECORD) {}
-void ConsoleTextEditor::m_childHandleResizeEvent(const COORD) 			   {}
+void ConsoleTextEditor::m_updateCursorPos(const std::size_t consoleStartIndex) const noexcept
+{
+    COORD cursorPos = {};
+
+    for (std::size_t i = consoleStartIndex; i < m_currentIndex; ++i)
+    {
+        switch (m_inputBuffer.at(i))
+        {
+        case L'\n':
+            ++cursorPos.Y;
+            cursorPos.X = 0;
+            break;
+        case L'\t':
+            cursorPos.X += s_tabSize;
+            break;
+        default:
+            ++cursorPos.X;
+            break;
+        }
+    }
+
+    const auto threshold = m_screenWidth() / 2;
+
+    if(cursorPos.X >= threshold) cursorPos.X = static_cast<short>(threshold - 1);
+
+    SetConsoleCursorPosition(m_getConsoleHandleOut(), cursorPos);
+}
 
 void ConsoleTextEditor::m_updateScreenBuffer(const std::size_t consoleStartIndex) noexcept
 {
@@ -206,6 +329,19 @@ void ConsoleTextEditor::m_insertChar(const wchar_t c) noexcept
     return 0;
 }
 
+[[nodiscard]] constexpr std::size_t ConsoleTextEditor::m_getRowCountUntil(const std::size_t index) const noexcept
+{
+    std::size_t result = 1;
+
+    for (std::size_t i = 0; i <= index; ++i)
+    {
+        if (m_inputBuffer.at(i) == L'\n') ++result;
+    }
+
+    return result;
+}
+
+
 void ConsoleTextEditor::m_updateConsole() noexcept
 {
     const auto consoleStartIndex = m_getConsoleStartIndex();
@@ -215,38 +351,11 @@ void ConsoleTextEditor::m_updateConsole() noexcept
     m_updateScreenBuffer(consoleStartIndex);
     m_updateCursorPos   (consoleStartIndex);
 
-
-
     m_renderConsole();
 }
 
-void ConsoleTextEditor::m_updateCursorPos(const std::size_t consoleStartIndex) const noexcept
-{
-    COORD cursorPos = {};
 
-    for (std::size_t i = consoleStartIndex; i < m_currentIndex; ++i)
-    {
-        switch (m_inputBuffer.at(i))
-        {
-        case L'\n':
-            ++cursorPos.Y;
-            cursorPos.X = 0;
-            break;
-        case L'\t':
-            cursorPos.X += s_tabSize;
-            break;
-        default:
-            ++cursorPos.X;
-            break;
-        }
-    }
 
-    const auto threshold = m_screenWidth() / 2;
-
-    if(cursorPos.X >= threshold) cursorPos.X = static_cast<short>(threshold - 1);
-
-    SetConsoleCursorPosition(m_getConsoleHandleOut(), cursorPos);
-}
 
 // TODO
 

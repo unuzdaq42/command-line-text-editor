@@ -3,8 +3,6 @@
 
 #include "console.h"
 
-#include <iostream>
-
 class ConsoleTextEditor : public Console
 {
 public:
@@ -17,9 +15,9 @@ private:
 
     void m_childUpdate(const float) override;
 
-    void m_childHandleKeyEvents  (const KEY_EVENT_RECORD event) override;
-    void m_childHandleMouseEvents(const MOUSE_EVENT_RECORD    ) override;
-	void m_childHandleResizeEvent(const COORD                 ) override;
+    void m_childHandleKeyEvents  (const KEY_EVENT_RECORD  ) override;
+    void m_childHandleMouseEvents(const MOUSE_EVENT_RECORD) override;
+	void m_childHandleResizeEvent(const COORD, const COORD) override;
 
 private:
 
@@ -34,7 +32,11 @@ private:
 
 private:
 
+    bool m_handleKeyEvents(const KEY_EVENT_RECORD event);
+
+    void m_updateCursorPos   (const std::size_t consoleStartIndex) const noexcept;
     void m_updateScreenBuffer(const std::size_t consoleStartIndex) noexcept;
+    void m_updateConsole() noexcept;
 
     void m_deleteCharAt(const std::size_t index) noexcept;
 
@@ -45,12 +47,8 @@ private:
 
     [[nodiscard]] constexpr std::size_t m_getConsoleColumnStartIndex(const std::size_t consoleStartIndex) const noexcept;
 
-    void m_updateConsole() noexcept;
-
-    void m_updateCursorPos(const std::size_t consoleStartIndex) const noexcept;
+    [[nodiscard]] constexpr std::size_t m_getRowCountUntil(const std::size_t index) const noexcept;
 };
-
-
 
 
 
