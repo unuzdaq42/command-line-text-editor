@@ -29,6 +29,8 @@ private:
     std::size_t m_startRow = 0;
 
     static constexpr std::size_t s_tabSize = 4;
+    
+    CONSOLE_SELECTION_INFO m_consoleSI = {};
 
 private:
 
@@ -39,6 +41,8 @@ private:
     void m_updateConsole() noexcept;
 
     void m_deleteCharAt(const std::size_t index) noexcept;
+    bool m_deleteIfSelected() noexcept;
+    // void m_deleteCharBetween(const std::size_t startInd, const std::size_t endInd) noexcept;
 
     void m_insertChar(const wchar_t c) noexcept;
 
@@ -48,6 +52,8 @@ private:
     [[nodiscard]] constexpr std::size_t m_getConsoleColumnStartIndex(const std::size_t consoleStartIndex) const noexcept;
 
     [[nodiscard]] constexpr std::size_t m_getRowCountUntil(const std::size_t index) const noexcept;
+
+    
 };
 
 

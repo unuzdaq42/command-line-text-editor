@@ -14,12 +14,13 @@ Console::~Console()
     CloseHandle(m_handleOut);
 
     SetConsoleActiveScreenBuffer(GetStdHandle(STD_OUTPUT_HANDLE));
-    // SetConsoleMode(m_handleIn, m_oldInputHandleMode);
+    SetConsoleMode(m_handleIn, m_oldInputHandleMode);
 }
 
 [[nodiscard]] bool Console::m_construct(
     const int width, const int height, 
-    const short fontW, const short fontH, const bool visibleCursor) noexcept
+    const short fontW, const short fontH, 
+    const bool visibleCursor, const DWORD consoleMode) noexcept
 {
     m_fontSize = { fontW, fontH };
 
@@ -46,14 +47,13 @@ Console::~Console()
     auto rect = m_consoleRect();
 
 
-    constexpr auto inputHandleModes = ENABLE_EXTENDED_FLAGS | ENABLE_WINDOW_INPUT | ENABLE_MOUSE_INPUT;
-
+    // look this up ---> ENABLE_LINE_INPUT 
 
     CONSOLE_ASSERT( m_handleOut != INVALID_HANDLE_VALUE && m_handleIn != INVALID_HANDLE_VALUE );
 
 
     CONSOLE_ASSERT( GetConsoleMode              ( m_handleIn , &m_oldInputHandleMode    ) );
-    CONSOLE_ASSERT( SetConsoleMode              ( m_handleIn , inputHandleModes         ) );
+    CONSOLE_ASSERT( SetConsoleMode              ( m_handleIn , consoleMode              ) );
     CONSOLE_ASSERT( SetConsoleWindowInfo        ( m_handleOut, true, &consoleWindow     ) );
     CONSOLE_ASSERT( SetConsoleScreenBufferSize  ( m_handleOut, m_consoleSizeCoord()     ) );
     CONSOLE_ASSERT( SetConsoleActiveScreenBuffer( m_handleOut                           ) );
@@ -108,7 +108,7 @@ void Console::m_run() noexcept
                 m_handleEvents(inputBuffer[i]);
             }
         }
-        
+    
         CONSOLE_SCREEN_BUFFER_INFO csbi = {};
         GetConsoleScreenBufferInfo(m_handleOut, &csbi);
 
@@ -199,5 +199,5 @@ void Console::m_createScreenBuffer(const int width, const int height) noexcept
     m_width  = width;   
     m_height = height;
 
-    m_screenBuffer.resize(static_cast<std::size_t>(width * height));
+    m_screenBuffer.resize(static_cast<std::size_t>(width) * static_cast<std::size_t>(height));
 }

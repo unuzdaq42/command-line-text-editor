@@ -9,6 +9,8 @@
 #define NOMINMAX
 #endif
 
+#define _WIN32_WINNT 0x0502
+
 #include <windows.h>
 #include <cstddef>
 #include <string>
@@ -16,6 +18,10 @@
 
 class Console
 {
+protected:
+
+	static constexpr auto s_defalutConsoleMode = ENABLE_EXTENDED_FLAGS | ENABLE_WINDOW_INPUT | ENABLE_MOUSE_INPUT;
+	
 public:
 
     Console() = default;
@@ -27,7 +33,8 @@ public:
 
     [[nodiscard]] bool m_construct(
 		const int width, const int height, 
-		const short fontW, const short fontH, const bool visibleCursor = false) noexcept;
+		const short fontW, const short fontH, 
+		const bool visibleCursor = false, const DWORD consoleMode = s_defalutConsoleMode) noexcept;
 
 	void m_run() noexcept;
 
@@ -77,6 +84,13 @@ protected:
 
 		m_setGrid(index, L' ', color);
 	}
+
+	void m_drawPixel(const std::size_t x, const std::size_t y, 
+		const bool r, const bool g, const bool b, const bool a) noexcept
+	{
+		m_drawPixel((y * m_screenWidth()) + x, r, g, b, a);
+	}
+
 
     void m_clearConsole() noexcept
 	{
