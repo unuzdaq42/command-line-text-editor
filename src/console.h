@@ -9,12 +9,44 @@
 #define NOMINMAX
 #endif
 
-#define _WIN32_WINNT 0x0502
+#define _WIN32_WINNT 0x0502 /// // // // 
 
 #include <windows.h>
 #include <cstddef>
 #include <string>
 #include <vector>
+
+#define CONSOLE_ASSERT(x, ...)\
+    if (!(x)) { Console::s_reportLastError(#x, __FILE__, __LINE__, __VA_ARGS__); return false; }
+
+
+
+namespace VirtualKeyCode
+{
+	// https://docs.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
+	enum KeyCode : WORD
+	{
+		Num0 = 0x30, Num1 = 0x31,
+		Num2 = 0x32, Num3 = 0x33,
+		Num4 = 0x34, Num5 = 0x35,
+		Num6 = 0x36, Num7 = 0x37,
+		Num8 = 0x38, Num9 = 0x39,
+
+		Numpad0 = 0x60, Numpad1 = 0x61,
+		Numpad2 = 0x62, Numpad3 = 0x63,
+		Numpad4 = 0x64, Numpad5 = 0x65,
+		Numpad6 = 0x66, Numpad7 = 0x67,
+		Numpad8 = 0x68, Numpad9 = 0x69,
+		
+		A = 0x41, B = 0x42, C = 0x43, D = 0x44,
+		E = 0x45, F = 0x46, G = 0x47, H = 0x48,
+		I = 0x49, J = 0x4A, K = 0x4B, L = 0x4C,
+		M = 0x4D, N = 0x4E, O = 0x4F, P = 0x50,
+		Q = 0x51, R = 0x52, S = 0x53, T = 0x54,
+		U = 0x55, V = 0x56, W = 0x57, X = 0x58,
+		Y = 0x59, Z = 0x5A,
+	};
+}
 
 class Console
 {
@@ -129,17 +161,23 @@ protected:
 
 protected:
 
-    virtual bool m_childConstruct()            = 0;
-    virtual void m_childUpdate   (const float) = 0;
+    virtual bool m_childConstruct()         = 0;
+	virtual void m_childDeconstruct()   	= 0;
+    virtual void m_childUpdate(const float) = 0;
 
-    virtual void m_childHandleKeyEvents  (const KEY_EVENT_RECORD  ) {}
-    virtual void m_childHandleMouseEvents(const MOUSE_EVENT_RECORD) {}
-	virtual void m_childHandleResizeEvent(const COORD, const COORD) {}
+    virtual void m_childHandleKeyEvents  (const KEY_EVENT_RECORD&  ) {}
+    virtual void m_childHandleMouseEvents(const MOUSE_EVENT_RECORD&) {}
+	virtual void m_childHandleResizeEvent(const COORD, const COORD ) {}
 
 protected:
 
 	[[nodiscard]] constexpr auto m_getConsoleHandleOut() const noexcept { return m_handleOut; }
 	[[nodiscard]] constexpr auto m_getConsoleHandleIn () const noexcept { return m_handleIn ; }
+
+	void m_setCursorPos(const short x, const short y) const noexcept
+	{
+		SetConsoleCursorPosition(m_handleOut, { x, y } );
+	}
 
 private:
 
@@ -157,11 +195,13 @@ private:
 
     bool m_runing = true;
 
-private:
+public:
 
 	template<typename ... Args>
-	void m_reportLastError(const char* funcName, const char* fileName, 
-    	const int lineNumber, const Args& ... args) const noexcept;
+	static void s_reportLastError(const char* funcName, const char* fileName, 
+    	const int lineNumber, const Args& ... args) noexcept;
+
+private:
 
 	[[nodiscard]] constexpr COORD m_consoleSizeCoord() const noexcept
 	{
@@ -175,7 +215,7 @@ private:
 
 private:
 
-    void m_handleEvents(const INPUT_RECORD event) noexcept;
+	void m_handleEvents() noexcept;
 
 	void m_resizeConsole(const COORD newSize) noexcept;
 	void m_createScreenBuffer(const int width, const int height) noexcept;
