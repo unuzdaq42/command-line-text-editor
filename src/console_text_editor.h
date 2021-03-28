@@ -6,6 +6,7 @@
 #include <utility>
 #include <string_view>
 #include <optional>
+#include <type_traits>
 
 /*
 
@@ -25,7 +26,11 @@
     
     right alt key doesnt work --> could be better
 
+    make constants such as startRowThreshold, column threshold
+
     TODO:
+
+    control Z ( change history )
 
     m_handleKeyEvents VK_BACK and VK_DELETE maybe no need for another m_deleteCharAt function
     selection could be default and it handles everything
@@ -37,29 +42,27 @@
 
     you dont have to do all of them but:
     mouse selection, mouse wheel scroll
-    select line, select all, select word, ctrl + arrow keys, find and replace, find next 
+    find and replace, find next 
 
     maybe color on find and replace
-
-    make constants such as startRowThreshold, column threshold
 
     debug release option on CONSOLE_ASSERT
 
     BUGS
 
-    if m_inputBuffer is "\n " and m_currentIndex = 1 user cannot go one line up
+    control window close event
 
 */
 class ConsoleTextEditor : public Console
 {
 public:
 
-    [[nodiscard]] bool m_constructEditor(const int argc, const char* argv[]) noexcept;
+    [[nodiscard]] bool m_constructEditor(const int argc, const wchar_t* argv[]) noexcept;
 
 private:
 
-    bool m_childConstruct() override;
-    void m_childDeconstruct() override;
+    bool m_childCreate() override;
+    void m_childDestroy() override;
     void m_childUpdate(const float) override;
 
     void m_childHandleKeyEvents  (const KEY_EVENT_RECORD&  ) override;
@@ -91,9 +94,9 @@ private:
 private:
 
     void m_handleKeyEvents(const KEY_EVENT_RECORD& event);
-    void m_handleSelectionEvent(const KEY_EVENT_RECORD& event, 
-        const IndexType oldInputIndex, const std::size_t oldBufferSize) noexcept;
+    void m_handleSelectionEvent(const KEY_EVENT_RECORD& event, const IndexType oldInputIndex) noexcept;
     void m_handleControlKeyEvents(const KEY_EVENT_RECORD& event) noexcept;
+    void m_handleCursorMoveEvents(const KEY_EVENT_RECORD& event) noexcept;
 
     void m_updateScreenBuffer() noexcept;
     void m_updateConsole() noexcept;
@@ -105,6 +108,17 @@ private:
     void m_handleCharDeletion(const wchar_t c) noexcept;
 
     void m_insertChar(const wchar_t c) noexcept;
+
+    void m_moveCursorOneWordLeft () noexcept;
+    void m_moveCursorOneWordRight() noexcept;
+
+
+private:
+    
+    bool m_readFile (const std::wstring_view filePath) noexcept;
+    bool m_writeFile(const std::wstring_view filePath) const noexcept;
+
+private:
 
     // returns top left pixels index value ( according to m_inputBuffer )
     [[nodiscard]] constexpr IndexType m_getConsoleStartIndex() const noexcept;
@@ -135,18 +149,33 @@ private:
     //     return (first > second) ? first : second;
     // }   
 
+    [[nodiscard]] static constexpr auto s_getSignedDiff(const IndexType lhs, const IndexType rhs) noexcept
+    {
+        using type = std::make_signed<IndexType>::type;
+        return static_cast<type>(lhs) - static_cast<type>(rhs);
+    }
 
     static bool s_setUserClipboard(const std::wstring_view str) noexcept;
     [[nodiscard]] static std::optional<std::wstring> s_getUserClipboard() noexcept;
 
 
-    [[nodiscard]] static bool s_isCtrlKeyPressed(const DWORD flag) noexcept
+    [[nodiscard]] static bool s_isCtrlKeyPressed(const KEY_EVENT_RECORD& event) noexcept
     {
         // windows gives ctrl left event when user presses alt gr key
         // couldnt find anything better than this 
         const bool isAltGrKeyPressed = GetKeyState(VK_RMENU) & 0x8000;
 
-        return (flag & s_ctrlKeyFlag) != 0 && !isAltGrKeyPressed;
+        return (event.dwControlKeyState & s_ctrlKeyFlag) != 0 && !isAltGrKeyPressed;
+    }
+
+    [[nodiscard]] static constexpr bool s_isShiftKeyPressed(const KEY_EVENT_RECORD event) noexcept
+    {
+        return (event.dwControlKeyState & SHIFT_PRESSED) == SHIFT_PRESSED;
+    }
+
+    [[nodiscard]] static constexpr bool s_isShiftKeyEvent(const KEY_EVENT_RECORD event) noexcept
+    {
+        return event.wVirtualKeyCode == VK_SHIFT;
     }
 };
 

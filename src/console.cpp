@@ -80,7 +80,7 @@ void Console::m_run() noexcept
 {
     using namespace std::chrono;
 
-    if (!m_childConstruct()) return;
+    if (!m_childCreate()) return;
 
     auto frameStartTime = steady_clock::now();
 
@@ -102,7 +102,7 @@ void Console::m_run() noexcept
         if (!SetConsoleTitleW(ss.str().c_str())) return;
     }
 
-    m_childDeconstruct();
+    m_childDestroy();
 
 }
 

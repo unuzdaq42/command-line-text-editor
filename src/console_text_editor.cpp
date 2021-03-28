@@ -2,9 +2,11 @@
 
 #include <sstream>
 #include <cwctype> // std::iswprint
+#include <algorithm>
+#include <cwchar>
 
 
-[[nodiscard]] bool ConsoleTextEditor::m_constructEditor(const int argc, const char* argv[]) noexcept
+[[nodiscard]] bool ConsoleTextEditor::m_constructEditor(const int argc, const wchar_t* argv[]) noexcept
 {
 	int width  = 100;
 	int height = 50;
@@ -12,34 +14,29 @@
 	short fontW = 8;
 	short fontH = 16;
 
-	if (argc > 2)
+	if (argc > 1)
 	{
-		width  = std::atoi(argv[1]);
-		height = std::atoi(argv[2]);
+		m_readFile(argv[1]);
 	
-		if (argc > 4)
+		if (argc > 3)
 		{
-			fontW = static_cast<short>(std::atoi(argv[3]));
-			fontH = static_cast<short>(std::atoi(argv[4]));
+			width  = _wtoi(argv[2]);
+			height = _wtoi(argv[3]);
+		
+			if (argc > 5)
+			{
+				fontW = static_cast<short>(_wtoi(argv[4]));
+				fontH = static_cast<short>(_wtoi(argv[5]));
+			}
 		}
 	}
+
 
 	return m_construct(width, height, fontW, fontH, true, s_defalutConsoleMode );
 }
 
-bool ConsoleTextEditor::m_childConstruct()
-{
-	
-	m_inputBuffer += 
-	L"selamlar canisi selamlar\n"
-	L"xd xd xd xd xd xd xd xd\n"
-	L"selamlar canisi nabiyn\n"
-	L"selamlar canısı xd\n"
-	L"selamlar lol xd\n"
-	L"xd xd xd xd xd xd xd\n"
-	L"xd xd xd xd xd xd xd\n";
-	m_rowCount = 7;
-	
+bool ConsoleTextEditor::m_childCreate()
+{	
 	m_inputBuffer.push_back(L' ');
 	
 	m_updateConsole();
@@ -47,7 +44,7 @@ bool ConsoleTextEditor::m_childConstruct()
 	return true;
 }
 
-void ConsoleTextEditor::m_childDeconstruct()
+void ConsoleTextEditor::m_childDestroy()
 {
 }
 
@@ -67,11 +64,12 @@ void ConsoleTextEditor::m_childUpdate(const float)
 void ConsoleTextEditor::m_childHandleKeyEvents(const KEY_EVENT_RECORD& event) 
 {
 	const auto oldInputIndex = m_currentIndex;
-	const auto oldBufferSize = m_inputBuffer.size();
+
+	m_handleCursorMoveEvents(event);
+
+	m_handleSelectionEvent(event, oldInputIndex);
 
 	m_handleKeyEvents(event);
-
-	m_handleSelectionEvent(event, oldInputIndex, oldBufferSize);
 
 	m_handleControlKeyEvents(event);
 
@@ -86,7 +84,7 @@ void ConsoleTextEditor::m_childHandleResizeEvent(const COORD, const COORD)
 
 void ConsoleTextEditor::m_handleKeyEvents(const KEY_EVENT_RECORD& event)
 {	
-	if (!event.bKeyDown || s_isCtrlKeyPressed(event.dwControlKeyState)) return;
+	if (!event.bKeyDown || s_isCtrlKeyPressed(event)) return;
 
 	switch (event.wVirtualKeyCode)
 	{
@@ -117,110 +115,6 @@ void ConsoleTextEditor::m_handleKeyEvents(const KEY_EVENT_RECORD& event)
 		}
 
 		break;
-	case VK_LEFT:
-
-		if (m_currentIndex > 0)
-		{
-			if (m_inputBuffer.at(--m_currentIndex) == L'\n' && m_startRow > 0)
-			{
-				--m_startRow;
-			}
-		}
-
-		break;
-	case VK_RIGHT:
-
-		if (m_currentIndex + 1 < m_inputBuffer.size())
-		{
-			if (m_inputBuffer.at(m_currentIndex) == L'\n')
-			{
-				m_scrollDownIfNeeded();
-			}
-
-			++m_currentIndex;
-		}
-
-		break;
-	case VK_UP:
-	{
-		IndexType colCount = 0;
-
-		for (auto it = m_inputBuffer.crbegin() + m_inputBuffer.size() - m_currentIndex;
-			it != m_inputBuffer.crend(); ++it)
-		{
-			if (*it == L'\n') break;
-
-			++colCount;
-		}
-
-		if (m_currentIndex <= colCount + 1) break;
-
-		if (m_startRow > 0) --m_startRow;
-
-		const auto firstNewLine = m_currentIndex - colCount - 1;
-		auto newLineIndex = firstNewLine;
-
-		while (m_inputBuffer.at(--newLineIndex) != L'\n')
-		{
-			if (newLineIndex == 0)
-			{
-				m_currentIndex = colCount;
-				return;
-			}
-		}
-
-		if (newLineIndex == firstNewLine - 1)
-		{
-			m_currentIndex = firstNewLine;
-			break;
-		}
-
-		auto i = firstNewLine - 1;
-
-		for (; i > newLineIndex + colCount + 1; --i)
-		{
-			if (m_inputBuffer.at(i) == L'\n') break;
-		}
-
-		m_currentIndex = i;
-
-		break;
-	}
-	case VK_DOWN:
-	{
-		IndexType colCount = 0;
-
-		for (auto it = m_inputBuffer.crbegin() + m_inputBuffer.size() - m_currentIndex;
-			it != m_inputBuffer.crend(); ++it)
-		{
-			if (*it == L'\n') break;
-
-			++colCount;
-		}
-
-		auto newLineIndex = m_currentIndex;
-
-		while (m_inputBuffer.at(newLineIndex++) != L'\n')
-		{
-			if (newLineIndex >= m_inputBuffer.size()) return;
-		}
-
-		const auto size = s_getMin(newLineIndex + colCount, m_inputBuffer.size() - 1);
-
-		auto i = newLineIndex;
-
-		for (; i < size; ++i)
-		{
-			if (m_inputBuffer.at(i) == L'\n') break;
-		}
-
-		m_currentIndex = i;
-
-		// dont scroll down if it is failed to go down one line
-		m_scrollDownIfNeeded();
-
-		break;
-	}
 	case VK_RETURN:
 
 		m_deleteIfSelected();
@@ -246,25 +140,24 @@ void ConsoleTextEditor::m_handleKeyEvents(const KEY_EVENT_RECORD& event)
 
 }
 
-void ConsoleTextEditor::m_handleSelectionEvent(const KEY_EVENT_RECORD& event, 
-	const IndexType oldInputIndex, const std::size_t oldBufferSize) noexcept
+void ConsoleTextEditor::m_handleSelectionEvent(const KEY_EVENT_RECORD& event, const IndexType oldInputIndex) noexcept
 {
 	static bool s_shiftPressed = false;
 
-	if (event.wVirtualKeyCode == VK_SHIFT)
+	if (s_isShiftKeyEvent(event))
 	{
 		s_shiftPressed = event.bKeyDown;
 	}
 
-	if (oldInputIndex != m_currentIndex && oldBufferSize == m_inputBuffer.size())
+	if (oldInputIndex != m_currentIndex)
 	{
-		// user moved the cursor but didnt add any char to buffer
+		// user moved the cursor
 
 		if (s_shiftPressed && !m_selectionInProgress)
 		{
 			m_selectionStartIndex = oldInputIndex;
 
-			const int diff = static_cast<int>(m_currentIndex) - static_cast<int>(oldInputIndex);
+			const auto diff = s_getSignedDiff(m_currentIndex, oldInputIndex);
 
 			if (diff == 1 || diff == -1)
 			{
@@ -278,7 +171,7 @@ void ConsoleTextEditor::m_handleSelectionEvent(const KEY_EVENT_RECORD& event,
 
 void ConsoleTextEditor::m_handleControlKeyEvents(const KEY_EVENT_RECORD& event) noexcept
 {
-	if (!event.bKeyDown || !s_isCtrlKeyPressed(event.dwControlKeyState)) return;
+	if (!event.bKeyDown || !s_isCtrlKeyPressed(event)) return;
 
 	switch (event.wVirtualKeyCode)
 	{
@@ -323,6 +216,7 @@ void ConsoleTextEditor::m_handleControlKeyEvents(const KEY_EVENT_RECORD& event) 
 				{
 				case L'\n':
 					++m_rowCount;
+					[[fallthrough]];
 				case L'\t':
 					++it;
 					break;
@@ -330,7 +224,7 @@ void ConsoleTextEditor::m_handleControlKeyEvents(const KEY_EVENT_RECORD& event) 
 
 					if (!std::iswprint(element))
 					{
-						// element is not printable and it is not accepted
+						// delete element if it is not printable and it is not accepted
 						// as a control character
 						it = str.erase(it);
 					}
@@ -375,11 +269,204 @@ void ConsoleTextEditor::m_handleControlKeyEvents(const KEY_EVENT_RECORD& event) 
 		m_selectionInProgress = true;
 
 		break;
+	case VirtualKeyCode::L:
+	{
+		// Select Line Event
+
+		auto findStart = m_currentIndex;
+
+		if (findStart > 0) --findStart;
+
+		const auto start = m_inputBuffer.rfind(L'\n', findStart		);
+		const auto end   = m_inputBuffer.find (L'\n', m_currentIndex);
+
+		if (start == std::wstring::npos) m_currentIndex = 0;
+		else m_currentIndex = start + 1;
+
+		m_selectionStartIndex = std::min(end, m_inputBuffer.size() - 1);
+
+		m_selectionInProgress = true;
+
+		break;
+	}
+	case VirtualKeyCode::S:
+		// Save to file event
+
+		m_writeFile(L"c:\\users\\acer\\desktop\\someDeal.txt");
+
+		break;
+	case VK_BACK:
+	case VK_DELETE:
+	{
+		// Delete Word Events
+
+		if (m_deleteIfSelected()) break;
+
+		auto oldInputIndex = m_currentIndex;
+
+		if (event.wVirtualKeyCode == VK_BACK) m_moveCursorOneWordLeft();
+		else m_moveCursorOneWordRight();
+
+		if (m_currentIndex < oldInputIndex) --oldInputIndex;
+		
+		m_selectionStartIndex = oldInputIndex;
+		m_selectionInProgress = true;
+
+		m_deleteIfSelected();
+
+		break;
+	}
 	default:
 		break;
 	}
 }
 
+
+void ConsoleTextEditor::m_handleCursorMoveEvents(const KEY_EVENT_RECORD& event) noexcept
+{
+	if (!event.bKeyDown) return;
+
+	if (s_isCtrlKeyPressed(event))
+	{
+		// control key + movement events
+		switch (event.wVirtualKeyCode)
+		{
+		case VK_LEFT:
+		
+			m_moveCursorOneWordLeft();
+			break;
+		case VK_RIGHT:
+			m_moveCursorOneWordRight();
+			break;
+		case VK_HOME:
+			
+			m_currentIndex = 0;
+			break;
+		case VK_END:
+			
+			m_currentIndex = m_inputBuffer.size() - 1;
+			break;
+		default:
+			break;
+		}
+
+		return;
+	}
+
+
+	switch (event.wVirtualKeyCode)
+	{
+	case VK_LEFT:
+
+		if (m_currentIndex > 0)
+		{
+			if (m_inputBuffer.at(--m_currentIndex) == L'\n' && m_startRow > 0)
+			{
+				--m_startRow;
+			}
+		}
+
+		break;
+	case VK_RIGHT:
+
+		if (m_currentIndex + 1 < m_inputBuffer.size())
+		{
+			if (m_inputBuffer.at(m_currentIndex) == L'\n')
+			{
+				m_scrollDownIfNeeded();
+			}
+
+			++m_currentIndex;
+		}
+
+		break;
+	case VK_UP:
+	{
+		if (m_currentIndex == 0) break;
+
+		const auto firstNewLineIndex = m_inputBuffer.rfind(L'\n', m_currentIndex - 1);
+
+		if (firstNewLineIndex == 0) { m_currentIndex = 0; break; }
+		if (firstNewLineIndex == std::wstring::npos) break;
+
+		const auto columnCount = m_currentIndex - firstNewLineIndex;
+		const auto secondNewLineIndex = m_inputBuffer.rfind(L'\n', firstNewLineIndex - 1);
+
+		if (secondNewLineIndex == std::wstring::npos)
+		{
+			m_currentIndex = std::min(firstNewLineIndex, columnCount - 1);
+		}
+		else if (secondNewLineIndex == firstNewLineIndex - 1)
+		{
+			m_currentIndex = firstNewLineIndex;
+		}
+		else
+		{
+			m_currentIndex = std::min(firstNewLineIndex, secondNewLineIndex + columnCount);
+		}
+
+		if (m_startRow > 0) --m_startRow;
+
+		break;
+	}
+	case VK_DOWN:
+	{
+		IndexType colCount = 0;
+
+		for (auto it = m_inputBuffer.crend() - m_currentIndex; it != m_inputBuffer.crend(); ++it)
+		{
+			if (*it == L'\n') break;
+
+			++colCount;
+		}
+
+		auto newLineIndex = m_currentIndex;
+
+		while (m_inputBuffer.at(newLineIndex++) != L'\n')
+		{
+			if (newLineIndex >= m_inputBuffer.size()) return;
+		}
+
+		const auto size = s_getMin(newLineIndex + colCount, m_inputBuffer.size() - 1);
+
+		auto i = newLineIndex;
+
+		for (; i < size; ++i)
+		{
+			if (m_inputBuffer.at(i) == L'\n') break;
+		}
+
+		m_currentIndex = i;
+
+		// dont scroll down if it is failed to go down one line
+		m_scrollDownIfNeeded();
+
+		break;
+	}
+	case VK_HOME:
+		m_currentIndex = m_inputBuffer.rfind(L'\n', m_currentIndex);
+
+		if (m_currentIndex == std::wstring::npos)
+		{
+			m_currentIndex = 0;
+		}
+		else ++m_currentIndex;
+
+		break;
+	case VK_END:
+		m_currentIndex = m_inputBuffer.find(L'\n', m_currentIndex);
+
+		if (m_currentIndex == std::wstring::npos)
+		{
+			m_currentIndex = m_inputBuffer.size() - 1;
+		}
+		else if (m_currentIndex > 0) --m_currentIndex;
+
+		break;
+	default:
+		break;
+	}
+}
 
 
 void ConsoleTextEditor::m_updateScreenBuffer() noexcept
@@ -396,9 +483,7 @@ void ConsoleTextEditor::m_updateScreenBuffer() noexcept
 	{
 		if (index == m_currentIndex)
 		{
-			const IndexType threshold = m_screenWidth() / 2;
-
-			m_setCursorPos(static_cast<short>(s_getMin(t, threshold)), static_cast<short>(i));
+			m_setCursorPos(static_cast<short>(s_getMin(t, m_horizontalScrollThreshold())), static_cast<short>(i));
 		}
 
 		const auto character = m_inputBuffer.at(index); 
@@ -435,7 +520,7 @@ void ConsoleTextEditor::m_updateScreenBuffer() noexcept
 		
 			if (t < m_screenWidth() && ++currColumnCount > columnStartVal)
 			{
-				WORD color = s_foregroundWhite;
+				auto color = s_foregroundWhite;
 
 				if (m_selectionInProgress)
 				{
@@ -516,6 +601,112 @@ void ConsoleTextEditor::m_insertChar(const wchar_t c) noexcept
 
 	++m_currentIndex;
 }
+
+void ConsoleTextEditor::m_moveCursorOneWordLeft() noexcept
+{
+	const auto it = std::find_if(m_inputBuffer.crend() - m_currentIndex, m_inputBuffer.crend(),
+	[&, findedWord = false] (const wchar_t element) mutable
+	{
+		
+		if (std::iswalnum(element))
+		{
+			findedWord = true;
+		}
+		else
+		{
+			if (findedWord) return true;
+
+			if (element == L'\n' && m_startRow > 0)
+			{
+				--m_startRow;
+			}	
+		}
+		
+		return false;
+	});
+
+	if (it != m_inputBuffer.crend())
+	{
+		m_currentIndex = std::distance(m_inputBuffer.cbegin(), it.base());
+	}
+	else m_currentIndex = 0;
+
+}
+void ConsoleTextEditor::m_moveCursorOneWordRight() noexcept
+{
+	auto it = std::find_if(m_inputBuffer.cbegin() + m_currentIndex + 1, m_inputBuffer.cend(),
+	[&, findedWord = false] (const wchar_t element) mutable
+	{
+		if (std::iswalnum(element))
+		{
+			findedWord = true;
+		}
+		else if (findedWord) return true;
+		
+		return false;
+	});
+
+	if (it != m_inputBuffer.cend())
+	{
+		m_currentIndex = std::distance(m_inputBuffer.cbegin(), it) - 1;
+	}
+	else m_currentIndex = m_inputBuffer.size() - 1;
+
+	m_scrollDownIfNeeded();
+}
+
+bool ConsoleTextEditor::m_readFile(const std::wstring_view filePath) noexcept
+{
+	std::FILE* file = nullptr;
+	if (_wfopen_s(&file, filePath.data(), L"rb") || !file) return false;
+
+	std::fgetwc(file); // read extra one space?
+
+	m_inputBuffer.clear();
+	
+	m_selectionInProgress = false;
+	m_startRow = 0;
+	m_currentIndex = 0;
+	m_rowCount = 0;
+
+	std::wint_t c;
+	
+	while ((c = std::fgetwc(file)) != WEOF)
+	{
+		switch (c)
+		{
+		case L'\n':
+			++m_rowCount;
+		case L'\t':
+			m_inputBuffer.push_back(c);
+			break;
+		default:
+
+			if (std::iswprint(c))
+			{
+				m_inputBuffer.push_back(c);
+			}
+			break;
+		}
+	}
+
+	std::fclose(file);
+
+	return true;
+}
+
+bool ConsoleTextEditor::m_writeFile(const std::wstring_view filePath) const noexcept
+{
+	std::FILE* file = nullptr;
+	if (_wfopen_s(&file, filePath.data(), L"wb") || !file) return false;
+
+	std::fputws(m_inputBuffer.c_str(), file);
+
+	std::fclose(file);
+
+	return true;
+}
+
 
 [[nodiscard]] constexpr ConsoleTextEditor::IndexType ConsoleTextEditor::m_getConsoleStartIndex() const noexcept
 {

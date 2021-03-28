@@ -78,8 +78,8 @@ protected:
     std::wstring m_consoleFont  = L"Consolas";
     std::wstring m_consoleTitle = L"console";	
 
-	static constexpr auto s_foregroundWhite = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE; 
-	static constexpr auto s_backgroundWhite = BACKGROUND_RED | BACKGROUND_GREEN | BACKGROUND_BLUE;
+	static constexpr WORD s_foregroundWhite = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE; 
+	static constexpr WORD s_backgroundWhite = BACKGROUND_RED | BACKGROUND_GREEN | BACKGROUND_BLUE;
 
 	void m_setGrid(const std::size_t index, const wchar_t c, 
 		const WORD color = s_foregroundWhite) noexcept
@@ -161,8 +161,8 @@ protected:
 
 protected:
 
-    virtual bool m_childConstruct()         = 0;
-	virtual void m_childDeconstruct()   	= 0;
+    virtual bool m_childCreate()            = 0;
+	virtual void m_childDestroy()   	    = 0;
     virtual void m_childUpdate(const float) = 0;
 
     virtual void m_childHandleKeyEvents  (const KEY_EVENT_RECORD&  ) {}
