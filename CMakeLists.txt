@@ -13,6 +13,8 @@ set(
     ${SRC_DIR}/console.cpp
     ${SRC_DIR}/console_text_editor.h
     ${SRC_DIR}/console_text_editor.cpp
+    ${SRC_DIR}/text_editor.h
+    ${SRC_DIR}/text_editor.cpp
     ${SRC_DIR}/main.cpp
 )
 

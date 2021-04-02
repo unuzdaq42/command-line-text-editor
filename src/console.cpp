@@ -171,20 +171,6 @@ void Console::m_handleEvents() noexcept
             {
             case KEY_EVENT:
                 
-                /*if (i + 1 < eventCount && (event.Event.KeyEvent.dwControlKeyState & LEFT_CTRL_PRESSED) == LEFT_CTRL_PRESSED)
-                {
-                    const auto& nextEvent = inputBuffer[i + 1];
-
-                    constexpr auto altgr = (RIGHT_ALT_PRESSED | LEFT_CTRL_PRESSED);
-
-
-                    if (nextEvent.EventType == KEY_EVENT && (nextEvent.Event.KeyEvent.dwControlKeyState & altgr) == altgr)
-                    {
-                        continue;
-                    }
-
-                }*/
-
                 m_childHandleKeyEvents(event.Event.KeyEvent);
             break;
             case MOUSE_EVENT:
@@ -220,5 +206,51 @@ void Console::m_createScreenBuffer(const int width, const int height) noexcept
     m_width  = width;   
     m_height = height;
 
-    m_screenBuffer.resize(static_cast<std::size_t>(width) * static_cast<std::size_t>(height));
+    m_screenBuffer.resize(m_screenBufferSize());
+}
+
+bool Console::s_setUserClipboard(const std::wstring_view str) noexcept
+{
+	if (!OpenClipboard(nullptr)) return false;
+
+	const auto size = (str.size() + 1) * sizeof(wchar_t);
+
+	const auto stringHandle = GlobalAlloc(GMEM_MOVEABLE, size);
+
+	if (!stringHandle) return false;
+
+	const auto lockedStr = GlobalLock(stringHandle);
+
+	if (!lockedStr) return false;
+
+	std::memcpy(lockedStr, str.data(), size);
+
+	GlobalUnlock(stringHandle);
+
+	if (!SetClipboardData(CF_UNICODETEXT, stringHandle)) return false;
+
+	CloseClipboard();
+
+	return true;
+}
+
+[[nodiscard]] std::optional<std::wstring> Console::s_getUserClipboard() noexcept
+{	
+	if (!OpenClipboard(nullptr)) return {};
+
+	const auto clipboardHandle = GetClipboardData(CF_UNICODETEXT);
+	
+	if (!clipboardHandle) return {};
+	
+	const auto data = static_cast<wchar_t*>(GlobalLock(clipboardHandle));
+	
+	if (!data) return {};
+
+	std::optional<std::wstring> result = { data };
+
+	GlobalUnlock(clipboardHandle);
+
+	CloseClipboard();
+
+	return result;
 }
