@@ -1,4 +1,4 @@
-#include "console_text_editor.h"
+#include "../include/console_text_editor.h"
 
 #include <sstream>
 
@@ -31,34 +31,20 @@
 	
 	if (argc > 1)
 	{
-		m_editors[Editor_Main].m_readFile(argv[1]);
-		m_editors[Editor_Main].m_updateConsole(*this);
-		m_renderConsole();
+		const std::wstring_view str = argv[1];
+
+		if (m_editors[Editor_Main].m_readFile(str))
+		{
+			m_updateEditors();
+			m_setConsoleTitle(utils::GetFileName(str));
+		}	
+	}
+	else
+	{
+		m_setConsoleTitle(L"Untitled");
 	}
 
-
 	return true;
-}
-
-bool ConsoleTextEditor::m_childCreate()
-{	
-	return true;
-}
-
-void ConsoleTextEditor::m_childDestroy()
-{
-}
-
-void ConsoleTextEditor::m_childUpdate(const float) 
-{ 
-	// std::wstringstream ss;
-
-	// if (m_selectionInProgress) ss << L"Select ";
-
-	// ss << L"bufferSize = " << m_inputBuffer.size() << L", bufferCapacity = " << m_inputBuffer.capacity() << L", m_currentIndex = " << m_currentIndex 
-	// << L", m_rowCount = " << m_rowCount << L" m_startRow = " << m_startRow;
-
-	// m_consoleTitle = std::move(ss.str());
 }
 
 void ConsoleTextEditor::m_childHandleKeyEvents(const KEY_EVENT_RECORD& event) 
@@ -74,13 +60,13 @@ void ConsoleTextEditor::m_childHandleKeyEvents(const KEY_EVENT_RECORD& event)
 			{
 			case VirtualKeyCode::S:
 				// save file event
-			
-				m_currentEditor = Editor_Save;
+				if (m_currentEditor == Editor_Main) m_currentEditor = Editor_Save;
+
 				break;
 			case VirtualKeyCode::O:
 				// open file event
+				if (m_currentEditor == Editor_Main) m_currentEditor = Editor_Open;
 				
-				m_currentEditor = Editor_Open;
 				break;
 			case VirtualKeyCode::F:
 			{
@@ -105,7 +91,7 @@ void ConsoleTextEditor::m_childHandleKeyEvents(const KEY_EVENT_RECORD& event)
 				m_currentEditor = Editor_Replace;
 				break;
 			case VK_RETURN:
-				// find next/previous event
+				// find/replace next/previous event
 
 				if (m_currentEditor == Editor_Replace && s_isAltKeyPressed(event))
 				{
@@ -128,9 +114,6 @@ void ConsoleTextEditor::m_childHandleKeyEvents(const KEY_EVENT_RECORD& event)
 					}
 				}
 
-
-
-
 				break;
 			default:
 				break;
@@ -146,6 +129,7 @@ void ConsoleTextEditor::m_childHandleKeyEvents(const KEY_EVENT_RECORD& event)
 			if (m_currentEditor != Editor_Main)
 			{
 				m_currentEditor = Editor_Main;
+				m_editors[Editor_Main].m_height = m_screenHeight();
 				return;
 			}
 
@@ -163,14 +147,19 @@ void ConsoleTextEditor::m_childHandleKeyEvents(const KEY_EVENT_RECORD& event)
 
 				return;
 			case Editor_Open:
+			{
 				// open file
 
-				if (m_editors[Editor_Main].m_readFile(m_editors[m_currentEditor].m_buffer()))
+				const auto str = m_editors[m_currentEditor].m_buffer();
+
+				if (m_editors[Editor_Main].m_readFile(str))
 				{
+					m_setConsoleTitle(utils::GetFileName(str));
 					m_currentEditor = Editor_Main;
 				}
 
 				return;
+			}
 			default:
 				break;
 			}
@@ -181,34 +170,84 @@ void ConsoleTextEditor::m_childHandleKeyEvents(const KEY_EVENT_RECORD& event)
 		}
 	}
 
-	if (!m_editors[m_currentEditor].m_handleEvents(event)) m_closeConsole();
+	if (!m_editors[m_currentEditor].m_handleEvents(*this, event)) m_closeConsole();
 
 	if (m_currentEditor == Editor_Find || m_currentEditor == Editor_Replace)
 	{
 		m_editors[Editor_Find   ].m_syncHeightWithRows(m_screenHeight());
 		m_editors[Editor_Replace].m_syncHeightWithRows(m_editors[Editor_Find].m_drawStartY - 1);
+
+		m_editors[Editor_Main].m_height = m_editors[Editor_Replace].m_drawStartY - 1;
 	}
 
-	m_updateConsole();
+	m_updateEditors();
+
+	m_setCursorPos(m_editors[m_currentEditor].m_cursorPos);
 }
 
-void ConsoleTextEditor::m_childHandleMouseEvents(const MOUSE_EVENT_RECORD&) {}
+void ConsoleTextEditor::m_childHandleMouseEvents(const MOUSE_EVENT_RECORD& event) 
+{
+	if (s_isLeftButtonPressed(event))
+	{
+		auto isInsidePoint = [&] (const EditorType type)
+		{
+			return m_editors[type].m_isInsidePoint(event.dwMousePosition.X, event.dwMousePosition.Y);
+		};
+
+		switch (m_currentEditor)
+		{
+		case Editor_Main:
+			break;
+		case Editor_Save:
+		case Editor_Open:
+			if (!isInsidePoint(m_currentEditor))
+			{
+				m_currentEditor = Editor_Main;
+			}
+
+			break;
+		case Editor_Find:
+		case Editor_Replace:
+
+			if (isInsidePoint(Editor_Find))
+			{
+				m_currentEditor = Editor_Find;
+			}
+			else if (isInsidePoint(Editor_Replace))
+			{
+				m_currentEditor = Editor_Replace;
+			}
+			else
+			{
+				m_currentEditor = Editor_Main;
+			}
+			break;
+		}
+	}
+
+	m_editors[m_currentEditor].m_handleEvents(*this, event);
+
+	m_updateEditors();
+	m_setCursorPos(m_editors[m_currentEditor].m_cursorPos);
+
+}
+
 void ConsoleTextEditor::m_childHandleResizeEvent(const COORD, const COORD)
 {	
 	m_initEditors();
 	
-	if (m_currentEditor != Editor_Main) m_editors[Editor_Main].m_updateConsole(*this);
-
-	m_updateConsole();
-
+	m_updateEditors();
+	
+	// windows shows scrollbar when this is Editor_Find or Editor_Replace
+	// on resize events probably due to cursor position
 	m_setCursorPos({ 0, 0 });
 }
 
 void ConsoleTextEditor::m_initEditors() noexcept
 {
 	m_editors[Editor_Main   ].m_initEditor(m_screenWidth(), m_screenHeight());
-	m_editors[Editor_Save   ].m_initEditor(m_screenWidth(), 1, s_openSaveEditorColor, 0, m_screenHeight() - 1);
-	m_editors[Editor_Open   ].m_initEditor(m_screenWidth(), 1, s_openSaveEditorColor, 0, m_screenHeight() - 1);
+	m_editors[Editor_Save   ].m_initEditor(m_screenWidth(), 2, s_openSaveEditorColor, 0, m_screenHeight() - 2);
+	m_editors[Editor_Open   ].m_initEditor(m_screenWidth(), 2, s_openSaveEditorColor, 0, m_screenHeight() - 2);
 	m_editors[Editor_Find   ].m_initEditor(m_screenWidth(), 4, s_openSaveEditorColor, 0, m_screenHeight() - 4);
 	m_editors[Editor_Replace].m_initEditor(m_screenWidth(), 8, s_openSaveEditorColor, 0, m_screenHeight() - 8);
 
@@ -222,37 +261,40 @@ void ConsoleTextEditor::m_updateEditor(const EditorType editorT, const std::wstr
 }
 
 
-void ConsoleTextEditor::m_updateConsole() noexcept
+void ConsoleTextEditor::m_updateEditors() noexcept
 {	
+	m_clearConsole();
+
+	m_editors[Editor_Main].m_updateConsole(*this, m_editors[Editor_Find].m_buffer());
+
 	switch (m_currentEditor)
 	{
 	case Editor_Find:
 	case Editor_Replace:
-	case Editor_Main:
-	
-		m_editors[Editor_Main].m_updateConsole(*this, m_editors[Editor_Find].m_buffer());
+	{
+		std::wstringstream ss;
+
+		const auto [index, count] = m_editors[Editor_Main].m_getMatchResults(m_editors[Editor_Find].m_buffer());			
 		
-		if (m_currentEditor != Editor_Main)
-		{
-			std::wstringstream ss;
+		ss << L"Find in editor: (" << index << L" of " << count << L")";
 
-			const auto [index, count] = m_editors[Editor_Main].m_getMatchResults(m_editors[Editor_Find].m_buffer());			
-			
-			ss << L"Find in editor: (" << index << L" of " << count << L")";
-
-			m_updateEditor(Editor_Find   , ss.str());
-			m_updateEditor(Editor_Replace, L"Replace in file");
-		} 
-
+		m_updateEditor(Editor_Find   , ss.str());
+		m_updateEditor(Editor_Replace, L"Replace in file");
+		
 		break;
+	}
 	case Editor_Save:
 		m_updateEditor(m_currentEditor, L"Save to File:");
 		break;
 	case Editor_Open:
 		m_updateEditor(m_currentEditor, L"Open a File:");
 		break;
+	case Editor_Main:
+		break;
 	}
 	
-	m_renderConsole();
-	m_setCursorPos(m_editors[m_currentEditor].m_cursorPos);
+	m_renderConsole();	
 }
+
+
+

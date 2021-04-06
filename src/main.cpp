@@ -1,4 +1,4 @@
-#include "console_text_editor.h"
+#include "../include/console_text_editor.h"
 
 
 int wmain(const int argc, const wchar_t* argv[])

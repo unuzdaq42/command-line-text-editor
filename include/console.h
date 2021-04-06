@@ -16,10 +16,7 @@
 #include <string>
 #include <vector>
 #include <optional>
-
-#define CONSOLE_ASSERT(x, ...)\
-    if (!(x)) { Console::s_reportLastError(#x, __FILE__, __LINE__, __VA_ARGS__); return false; }
-
+#include <chrono>
 
 
 namespace VirtualKeyCode
@@ -85,20 +82,31 @@ public:
         return (event.dwControlKeyState & s_ctrlKeyFlag) != 0 && !isAltGrKeyPressed;
     }
 
-	[[nodiscard]] static constexpr bool s_isAltKeyPressed(const KEY_EVENT_RECORD event) noexcept
+	[[nodiscard]] static constexpr bool s_isAltKeyPressed(const KEY_EVENT_RECORD& event) noexcept
 	{
 		return (event.dwControlKeyState & s_altKeyFlag) != 0;
 	}
 
-    [[nodiscard]] static constexpr bool s_isShiftKeyPressed(const KEY_EVENT_RECORD event) noexcept
+    [[nodiscard]] static constexpr bool s_isShiftKeyPressed(const KEY_EVENT_RECORD& event) noexcept
     {
         return (event.dwControlKeyState & SHIFT_PRESSED) == SHIFT_PRESSED;
     }
 
-    [[nodiscard]] static constexpr bool s_isShiftKeyEvent(const KEY_EVENT_RECORD event) noexcept
+    [[nodiscard]] static constexpr bool s_isShiftKeyEvent(const KEY_EVENT_RECORD& event) noexcept
     {
         return event.wVirtualKeyCode == VK_SHIFT;
     }
+
+	[[nodiscard]] static constexpr bool s_isLeftButtonPressed(const MOUSE_EVENT_RECORD& event) noexcept
+	{
+		return event.dwButtonState == FROM_LEFT_1ST_BUTTON_PRESSED;
+	}
+
+	[[nodiscard]] static constexpr bool s_isRightButtonPressed(const MOUSE_EVENT_RECORD& event) noexcept
+	{
+		return event.dwButtonState == RIGHTMOST_BUTTON_PRESSED;
+	}
+
 
 	static bool s_setUserClipboard(const std::wstring_view str) noexcept;
     [[nodiscard]] static std::optional<std::wstring> s_getUserClipboard() noexcept;
@@ -112,9 +120,6 @@ public:
 	{ 
 		return static_cast<std::size_t>(m_width) * static_cast<std::size_t>(m_height); 
 	}
-
-    std::wstring m_consoleFont  = L"Consolas";
-    std::wstring m_consoleTitle = L"console";	
 
 	static constexpr WORD s_foregroundWhite = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE; 
 	static constexpr WORD s_backgroundWhite = BACKGROUND_RED | BACKGROUND_GREEN | BACKGROUND_BLUE;
@@ -246,10 +251,6 @@ public:
 
 protected:
 
-    virtual bool m_childCreate()            = 0;
-	virtual void m_childDestroy()   	    = 0;
-    virtual void m_childUpdate(const float) = 0;
-
     virtual void m_childHandleKeyEvents  (const KEY_EVENT_RECORD&  ) {}
     virtual void m_childHandleMouseEvents(const MOUSE_EVENT_RECORD&) {}
 	virtual void m_childHandleResizeEvent(const COORD, const COORD ) {}
@@ -266,6 +267,15 @@ public:
 		SetConsoleCursorPosition(m_handleOut, pos);
 	}
 
+	auto m_setCursorInfo(const bool visible, const DWORD size = 1) const noexcept
+	{
+		CONSOLE_CURSOR_INFO cursorInfo;
+        cursorInfo.dwSize = size;
+        cursorInfo.bVisible = visible;
+
+        return SetConsoleCursorInfo(m_handleOut, &cursorInfo);
+	}
+
 	void m_setFontSize(const short w, const short h) const noexcept
 	{
 		CONSOLE_FONT_INFOEX cfi;
@@ -277,6 +287,14 @@ public:
 		cfi.dwFontSize = { w, h };
 
 		SetCurrentConsoleFontEx(m_handleOut, FALSE, &cfi);
+	}
+
+	void m_setConsoleTitle(const std::wstring_view str) const noexcept
+	{
+		if (!str.empty())
+		{
+			SetConsoleTitleW(str.data());
+		}
 	}
 
 private:
@@ -294,6 +312,44 @@ private:
 	DWORD m_oldInputHandleMode;
 
     bool m_runing = true;
+
+public:
+
+	enum class ButtonState
+	{
+		Released,
+		Pressed,
+		Held
+	};
+
+	class MouseButton
+	{
+	public:
+
+		constexpr void m_handleEvent(const MOUSE_EVENT_RECORD& event) noexcept;
+
+		[[nodiscard]] constexpr ButtonState m_state() const noexcept
+		{	
+			using namespace std::chrono;
+
+			if (m_buttonPressed)
+			{
+				if (duration_cast<duration<float>>(steady_clock::now() - m_timePoint).count() > 0.1f) return ButtonState::Held;
+				
+				return ButtonState::Pressed;
+			}
+
+			return ButtonState::Released;
+		}
+
+	private:
+
+		std::chrono::steady_clock::time_point m_timePoint;
+		bool m_buttonPressed = false;
+	};
+
+	MouseButton m_leftMouseButton;
+	MouseButton m_rightMouseButton;
 
 public:
 

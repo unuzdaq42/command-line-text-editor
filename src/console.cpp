@@ -1,10 +1,12 @@
-#include "console.h"
+#include "../include/console.h"
 
 #include <cstring>
 #include <sstream>
 #include <cwchar>
 #include <chrono>
 
+#define CONSOLE_ASSERT(x, ...)\
+    if (!(x)) { Console::s_reportLastError(#x, __FILE__, __LINE__, __VA_ARGS__); return false; }
 
 Console::~Console() 
 {
@@ -37,14 +39,11 @@ Console::~Console()
     cfi.dwFontSize = m_fontSize;
     cfi.FontFamily = FF_DONTCARE;
     cfi.FontWeight = FW_NORMAL;
-    wcscpy_s(cfi.FaceName, m_consoleFont.c_str());
+    wcscpy_s(cfi.FaceName, L"Consolas");
 
     CONSOLE_SCREEN_BUFFER_INFO csbi;
 
     auto rect = m_consoleRect();
-
-
-    // look this up ---> ENABLE_LINE_INPUT 
 
     CONSOLE_ASSERT( m_handleOut != INVALID_HANDLE_VALUE && m_handleIn != INVALID_HANDLE_VALUE );
 
@@ -63,48 +62,36 @@ Console::~Console()
     L"window width or height is above the maximum windows size limit maxSize = {", 
     csbi.dwMaximumWindowSize.X, L", ", csbi.dwMaximumWindowSize.Y, L"}");
 
-    if (!visibleCursor)
-    {
-        // make cursor invisible
-        CONSOLE_CURSOR_INFO cursorInfo;
-        cursorInfo.dwSize = 1;
-        cursorInfo.bVisible = false;
-
-        CONSOLE_ASSERT(SetConsoleCursorInfo(m_handleOut, &cursorInfo));
-    }
-
+    CONSOLE_ASSERT(m_setCursorInfo(visibleCursor));
+    
     return true;
 }
 
 void Console::m_run() noexcept
 {
-    using namespace std::chrono;
-
-    if (!m_childCreate()) return;
-
-    auto frameStartTime = steady_clock::now();
-
-    float elapsedTime = 0.0f;
-
     while (m_runing)
     {
-        m_childUpdate(elapsedTime);
-
         m_handleEvents();
+    }    
+}
 
-        elapsedTime = duration_cast<duration<float, std::milli>>(steady_clock::now() - frameStartTime).count();
-        frameStartTime = steady_clock::now();
-
-        std::wstringstream ss;
-
-        ss << m_consoleTitle << L" (Elapsed Time = " << elapsedTime << L")";
-
-        if (!SetConsoleTitleW(ss.str().c_str())) return;
+constexpr void Console::MouseButton::m_handleEvent(const MOUSE_EVENT_RECORD& event) noexcept
+{
+    if (event.dwButtonState == FROM_LEFT_1ST_BUTTON_PRESSED)
+    {
+        if (!m_buttonPressed)
+        {
+            m_timePoint = std::chrono::steady_clock::now();
+            m_buttonPressed = true;
+        }
+    }
+    else if (event.dwEventFlags == 0)
+    {
+        m_buttonPressed = false;
     }
 
-    m_childDestroy();
-
 }
+
 
 template<typename ... Args>
 void Console::s_reportLastError(const char* funcName, const char* fileName, 
@@ -150,7 +137,6 @@ void Console::m_renderConsole() noexcept
     WriteConsoleOutputW(m_handleOut, m_screenBuffer.data(), m_consoleSizeCoord(), { 0, 0 }, &rect);
 }
 
-
 void Console::m_handleEvents() noexcept
 {
     DWORD eventCount = 0;
@@ -172,12 +158,20 @@ void Console::m_handleEvents() noexcept
             case KEY_EVENT:
                 
                 m_childHandleKeyEvents(event.Event.KeyEvent);
-            break;
+                break;
             case MOUSE_EVENT:
-                m_childHandleMouseEvents(event.Event.MouseEvent);
-            break;
+            {
+                const auto& mouseEvent = event.Event.MouseEvent;
+
+                m_leftMouseButton.m_handleEvent (mouseEvent);
+                m_rightMouseButton.m_handleEvent(mouseEvent);
+
+                m_childHandleMouseEvents(mouseEvent);
+                
+                break;
+            }
             default:
-            break;
+                break;
             }
         }
     }

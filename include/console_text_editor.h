@@ -6,7 +6,6 @@
 #include "text_editor.h"
 
 
-
 class ConsoleTextEditor : public Console
 {
 public:
@@ -32,7 +31,7 @@ private:
 
     void m_initEditors() noexcept;
 
-    void m_updateConsole() noexcept;
+    void m_updateEditors() noexcept;
 
     void m_updateEditor(const EditorType editorT, const std::wstring_view header) noexcept;
 
@@ -41,15 +40,10 @@ private:
     static constexpr WORD s_openSaveEditorColor = s_foregroundWhite | BACKGROUND_RED | BACKGROUND_BLUE;
 
 private:
-    
-    bool m_childCreate() override;
-    void m_childDestroy() override;
-    void m_childUpdate(const float) override;
 
-    void m_childHandleKeyEvents  (const KEY_EVENT_RECORD&  ) override;
-    void m_childHandleMouseEvents(const MOUSE_EVENT_RECORD&) override;
-	void m_childHandleResizeEvent(const COORD, const COORD ) override;
-
+    void m_childHandleKeyEvents  (const KEY_EVENT_RECORD&  ) final override;
+    void m_childHandleMouseEvents(const MOUSE_EVENT_RECORD&) final override;
+	void m_childHandleResizeEvent(const COORD, const COORD ) final override;
 };
 
 
